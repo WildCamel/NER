@@ -305,7 +305,10 @@ def write_result_to_file(iterator, tags):
     words = raw_content.split()
     assert len(words) == len(tags)
     for w,t in zip(words, tags):
-        print w, '(' + t + ')',
+        if t == '0':
+            print w,
+        else:
+            print w, '(' + t + ')',
     print
     print '*' * 100
 
