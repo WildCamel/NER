@@ -6,6 +6,8 @@ from utils import *
 BATCH_SIZE = config.FLAGS.batch_size
 unit_num = embeddings_size         # 默认词向量的大小等于RNN(每个time step) 和 CNN(列) 中神经单元的个数, 为了避免混淆model中全部用unit_num表示。
 time_step = max_sequence      # 每个句子的最大长度和time_step一样,为了避免混淆model中全部用time_step表示。
+filter_sizes = [3, 5, 7]
+filter_num = 128
 DROPOUT_RATE = config.FLAGS.dropout
 EPOCH = config.FLAGS.epoch
 TAGS_NUM = get_class_size()
@@ -39,6 +41,35 @@ class NER_net:
         # y: [batch_size, time_step]
         self.y = tgt
 
+        pooled_outputs = []
+        for i, filter_size in enumerate(filter_sizes):
+            # conv: [batch_size, time_step, 128]
+            conv = tf.layers.conv1d(self.x, filters=filter_num, kernel_size=filter_size, activation=tf.nn.relu, padding="same")
+            pooled = tf.layers.max_pooling1d(conv, pool_size=2, strides=1, padding="same")
+            pooled_outputs.append(pooled)
+        # [batch_size, time_step, 384]
+        pooled = tf.concat(pooled_outputs, 2)
+        # [batch_size, 384*time_step]
+        #flat1 = tf.layers.flatten(pooled)
+        # [batch_size*time_step, 384]
+        x_reshape = tf.reshape(pooled, [-1, len(filter_sizes)*filter_num])
+        drop1 = tf.layers.dropout(x_reshape)
+        # projection: [None, TAGS_NUM]
+        projection = tf.layers.dense(drop1, units=TAGS_NUM, activation=tf.nn.relu, kernel_regularizer=tf.nn.l2_loss, bias_regularizer=tf.nn.l2_loss)
+
+        # 前面只是
+        # -1 to time step
+        self.outputs = tf.reshape(projection, [self.batch_size, -1, TAGS_NUM])
+
+        self.seq_length = tf.convert_to_tensor(self.batch_size * [max_sequence_in_batch], dtype=tf.int32)
+        self.log_likelihood, self.transition_params = tf.contrib.crf.crf_log_likelihood(
+            self.outputs, self.y, self.seq_length)
+
+        # Add a training op to tune the parameters.
+        self.loss = tf.reduce_mean(-self.log_likelihood)
+        self.train_op = tf.train.AdamOptimizer().minimize(self.loss)
+
+        '''
         cell_forward = tf.contrib.rnn.BasicLSTMCell(unit_num)
         cell_backward = tf.contrib.rnn.BasicLSTMCell(unit_num)
         if DROPOUT_RATE is not None:
@@ -68,6 +99,7 @@ class NER_net:
         # Add a training op to tune the parameters.
         self.loss = tf.reduce_mean(-self.log_likelihood)
         self.train_op = tf.train.AdamOptimizer().minimize(self.loss)
+        '''
 
 
 def train(net, iterator, sess):
@@ -167,6 +199,7 @@ if __name__ == '__main__':
 
     tag_table = tag_to_id_table()
     net = NER_net("ner", iterator, embedding, BATCH_SIZE)
+    exit(0)
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
         sess.run(iterator.initializer)

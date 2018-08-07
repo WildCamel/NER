@@ -19,6 +19,7 @@ max_sequence = config.FLAGS.max_sequence
 
 
 
+#lwg 定义了一个class是什么意思，感觉用的时候里面的参数变成了成员
 class BatchedInput(collections.namedtuple("BatchedInput",
                                           ("initializer",
                                            "source",
@@ -51,6 +52,7 @@ def build_word_index():
     else:
         print 'source vocabulary file has already existed, continue to next stage.'
 
+    #如果不存在tgt_vocab_file，根据tgt_file生成一份，并且根据词频从大到小排序输出
     if not os.path.exists(tgt_vocab_file):
         with open(tgt_file, 'r') as source:
             dict_word = {}
@@ -101,7 +103,7 @@ def get_class_size():
     return size + 1
 
 
-
+#创建tf查找表
 def create_vocab_tables(src_vocab_file, tgt_vocab_file, src_unknown_id, tgt_unknown_id, share_vocab=False):
   src_vocab_table = lookup_ops.index_table_from_file(
       src_vocab_file, default_value=src_unknown_id)
@@ -125,11 +127,13 @@ def get_iterator(src_vocab_table, tgt_vocab_table, vocab_size, batch_size, buffe
 
     src_dataset = tf.data.TextLineDataset(src_file)
     tgt_dataset = tf.data.TextLineDataset(tgt_file)
+    #lwg 把src和tgt序列压到同一个元素中
     src_tgt_dataset = tf.data.Dataset.zip((src_dataset, tgt_dataset))
-
+    #lwg 洗牌
     src_tgt_dataset = src_tgt_dataset.shuffle(
         buffer_size, random_seed)
 
+    #lwg 将句子分解成单词数组
     src_tgt_dataset = src_tgt_dataset.map(
         lambda src, tgt: (
             tf.string_split([src]).values, tf.string_split([tgt]).values),
@@ -139,23 +143,27 @@ def get_iterator(src_vocab_table, tgt_vocab_table, vocab_size, batch_size, buffe
     # src_tgt_dataset = src_tgt_dataset.filter(
     #     lambda src, tgt: tf.logical_and(tf.size(src) > 0, tf.size(tgt) > 0))
 
+    #lwg src长度补齐
     if src_max_len:
         src_tgt_dataset = src_tgt_dataset.map(
             lambda src, tgt: (src[:src_max_len], tgt),
             num_parallel_calls=num_threads)
         src_tgt_dataset.prefetch(buffer_size)
+    #lwg tgt长度补齐
     if tgt_max_len:
         src_tgt_dataset = src_tgt_dataset.map(
             lambda src, tgt: (src, tgt[:tgt_max_len]),
             num_parallel_calls=num_threads)
         src_tgt_dataset.prefetch(buffer_size)
 
+    #lwg word转换为id，其中lookup是把一整个word数组一起转换为id数组
     src_tgt_dataset = src_tgt_dataset.map(
         lambda src, tgt: (tf.cast(src_vocab_table.lookup(src), tf.int32),
                           tf.cast(tgt_vocab_table.lookup(tgt), tf.int32)),
         num_parallel_calls=num_threads)
     src_tgt_dataset.prefetch(buffer_size)
 
+    #lwg 矩阵后面增加两列src size和tgt size，应该是给那种非补齐的用的
     src_tgt_dataset = src_tgt_dataset.map(
         lambda src, tgt_in: (
             src, tgt_in, tf.size(src), tf.size(tgt_in)),
@@ -167,8 +175,8 @@ def get_iterator(src_vocab_table, tgt_vocab_table, vocab_size, batch_size, buffe
             # The first three entries are the source and target line rows;
             # these have unknown-length vectors.  The last two entries are
             # the source and target row sizes; these are scalars.
-            padded_shapes=(tf.TensorShape([None]),  # src
-                           tf.TensorShape([None]),  # tgt_input
+            padded_shapes=(tf.TensorShape([src_max_len]),  # src
+                           tf.TensorShape([tgt_max_len]),  # tgt_input
                            tf.TensorShape([]),  # src_len
                            tf.TensorShape([])),  # tgt_len
             # Pad the source and target sequences with eos tokens.
@@ -179,6 +187,7 @@ def get_iterator(src_vocab_table, tgt_vocab_table, vocab_size, batch_size, buffe
                             0,  # src_len -- unused
                             0))
 
+    #lwg 没看懂，num_buckets是桶的数量？bucket_width是每一通要装的id的数量？最后返回的bucket_id似乎是拥有相同的桶数的序列为一组
     def key_func(unused_1, unused_2, src_len, tgt_len):
         if src_max_len:
             bucket_width = (src_max_len + num_buckets - 1) // num_buckets
@@ -188,9 +197,15 @@ def get_iterator(src_vocab_table, tgt_vocab_table, vocab_size, batch_size, buffe
         bucket_id = tf.maximum(src_len // bucket_width, tgt_len // bucket_width)
         return tf.to_int64(tf.minimum(num_buckets, bucket_id))
 
+    #lwg 对窗口数据进行长度补齐
     def reduce_func(unused_key, windowed_data):
         return batching_func(windowed_data)
 
+    '''
+    lwg 没看太懂，似乎是按照实际单词长度装bucket后，根据bucket的数量进行分组。
+    并且这里每组最多取window_size个，变为一个batch。多余的会进入另外一个batch。这样每个key都会形成一系列的batch。
+    key对应的最后一个batch可能不满window_size个。所以要通过reduce_func进行补齐。这样被补齐的batch里面会有出现无效的sample？
+    '''
     batched_dataset = src_tgt_dataset.apply(tf.contrib.data.group_by_window(
         key_func=key_func, reduce_func=reduce_func, window_size=batch_size
     ))
@@ -207,7 +222,7 @@ def get_iterator(src_vocab_table, tgt_vocab_table, vocab_size, batch_size, buffe
 
 
 def get_predict_iterator(src_vocab_table, vocab_size, batch_size, max_len=max_sequence):
-    pred_dataset = tf.contrib.data.TextLineDataset(pred_file)
+    pred_dataset = tf.data.TextLineDataset(pred_file)
     pred_dataset = pred_dataset.map(
         lambda src: tf.string_split([src]).values)
     if max_len:
@@ -232,7 +247,8 @@ def get_predict_iterator(src_vocab_table, vocab_size, batch_size, max_len=max_se
 
     # 这里target_input在预测的时候不需要，但是不能返回None否则报错。这里则用个placeholder代替，但是仍然不会用到。
     WAHTEVER = 10
-    fake_tag = tf.placeholder(tf.int32, [None, WAHTEVER])
+    # fake_tag = tf.placeholder(tf.int32, [None, WAHTEVER])
+    fake_tag = tf.placeholder(tf.int32, [None, None])
     return BatchedInput(
         initializer=batched_iter.initializer,
         source=src_ids,
@@ -241,7 +257,7 @@ def get_predict_iterator(src_vocab_table, vocab_size, batch_size, max_len=max_se
         target_sequence_length=src_seq_len)
 
 
-def load_word2vec_embedding(vocab_size):
+def load_word2vec_embedding(vocab_size, load_dict = True, trainable=False):
     '''
         加载外接的词向量。
         :return:
@@ -253,23 +269,24 @@ def load_word2vec_embedding(vocab_size):
     unknown = np.asarray(rng.normal(size=(embeddings_size)))
     padding = np.asarray(rng.normal(size=(embeddings_size)))
     f = open(word_embedding_file)
-    for index, line in enumerate(f):
-        values = line.split()
-        try:
-            coefs = np.asarray(values[1:], dtype='float32')  # 取向量
-        except ValueError:
-            # 如果真的这个词出现在了训练数据里，这么做就会有潜在的bug。那coefs的值就是上一轮的值。
-            print values[0], values[1:]
+    if load_dict:
+        for index, line in enumerate(f):
+            values = line.split()
+            try:
+                coefs = np.asarray(values[1:], dtype='float32')  # 取向量
+            except ValueError:
+                # 如果真的这个词出现在了训练数据里，这么做就会有潜在的bug。那coefs的值就是上一轮的值。
+                print values[0], values[1:]
 
-        embeddings[index] = coefs   # 将词和对应的向量存到字典里
-    f.close()
+            embeddings[index] = coefs   # 将词和对应的向量存到字典里
+        f.close()
     # 顺序不能错，这个和unkown_id和padding id需要一一对应。
     embeddings[-2] = unknown
     embeddings[-1] = padding
 
     return tf.get_variable("embeddings", dtype=tf.float32,
                            shape=[vocab_size + 2, embeddings_size],
-                           initializer=tf.constant_initializer(embeddings), trainable=False)
+                           initializer=tf.constant_initializer(embeddings), trainable=trainable)
 
 
 def tag_to_id_table():
