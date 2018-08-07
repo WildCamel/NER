@@ -116,7 +116,7 @@ def create_vocab_tables(src_vocab_file, tgt_vocab_file, src_unknown_id, tgt_unkn
 
 
 def get_iterator(src_vocab_table, tgt_vocab_table, vocab_size, batch_size, buffer_size=None, random_seed=None,
-                 num_threads=8, src_max_len=max_sequence, tgt_max_len=max_sequence, num_buckets=5):
+                 num_threads=12, src_max_len=max_sequence, tgt_max_len=max_sequence, num_buckets=5):
     if buffer_size is None:
         # 如果buffer_size比总数据大很多，则会报End of sequence warning。
         # https://github.com/tensorflow/tensorflow/issues/12414
