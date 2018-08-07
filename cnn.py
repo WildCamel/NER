@@ -199,7 +199,6 @@ if __name__ == '__main__':
 
     tag_table = tag_to_id_table()
     net = NER_net("ner", iterator, embedding, BATCH_SIZE)
-    exit(0)
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
         sess.run(iterator.initializer)
