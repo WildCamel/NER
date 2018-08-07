@@ -59,7 +59,7 @@ class NER_net:
 
         # 前面只是
         # -1 to time step
-        self.outputs = tf.reshape(projection, [self.batch_size, -1, TAGS_NUM])
+        self.outputs = tf.reshape(projection, [self.batch_size, time_step, TAGS_NUM])
 
         self.seq_length = tf.convert_to_tensor(self.batch_size * [max_sequence_in_batch], dtype=tf.int32)
         self.log_likelihood, self.transition_params = tf.contrib.crf.crf_log_likelihood(
@@ -69,37 +69,6 @@ class NER_net:
         self.loss = tf.reduce_mean(-self.log_likelihood)
         self.train_op = tf.train.AdamOptimizer().minimize(self.loss)
 
-        '''
-        cell_forward = tf.contrib.rnn.BasicLSTMCell(unit_num)
-        cell_backward = tf.contrib.rnn.BasicLSTMCell(unit_num)
-        if DROPOUT_RATE is not None:
-            cell_forward = DropoutWrapper(cell_forward, input_keep_prob=1.0, output_keep_prob=DROPOUT_RATE)
-            cell_backward = DropoutWrapper(cell_backward, input_keep_prob=1.0, output_keep_prob=DROPOUT_RATE)
-
-        # time_major 可以适应输入维度。
-        outputs, bi_state = \
-            tf.nn.bidirectional_dynamic_rnn(cell_forward, cell_backward, self.x, dtype=tf.float32)
-
-        forward_out, backward_out = outputs
-        outputs = tf.concat([forward_out, backward_out], axis=2)
-
-        # projection:
-        W = tf.get_variable("projection_w", [2 * unit_num, TAGS_NUM])
-        b = tf.get_variable("projection_b", [TAGS_NUM])
-        x_reshape = tf.reshape(outputs, [-1, 2 * unit_num])
-        projection = tf.matmul(x_reshape, W) + b
-
-        # -1 to time step
-        self.outputs = tf.reshape(projection, [self.batch_size, -1, TAGS_NUM])
-
-        self.seq_length = tf.convert_to_tensor(self.batch_size * [max_sequence_in_batch], dtype=tf.int32)
-        self.log_likelihood, self.transition_params = tf.contrib.crf.crf_log_likelihood(
-            self.outputs, self.y, self.seq_length)
-
-        # Add a training op to tune the parameters.
-        self.loss = tf.reduce_mean(-self.log_likelihood)
-        self.train_op = tf.train.AdamOptimizer().minimize(self.loss)
-        '''
 
 
 def train(net, iterator, sess):
